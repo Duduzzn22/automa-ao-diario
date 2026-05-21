@@ -23,7 +23,9 @@ import unicodedata
 estado = {
     "rodando":       False,
     "pausado":       False,
-    "alunos":        [],   # lista de dicionários: [ {"nome": "João", "dias": ['.', 'f', ...]}, ... ]
+    "alunos":        [],   # alunos que serão processados
+    "alunos_importados": [], # todos os alunos válidos carregados do excel
+    "aluno_selecionado": [], # lista booleana acompanhando a seleção
     "total_alunos":  0,
     "aluno_atual":   0,
     "total_celulas": 0,
@@ -135,19 +137,19 @@ def carregar_excel():
         lbl_canc.config(text=f"Cancelado: {contadores['Cancelado']}")
         lbl_transf.config(text=f"Transf. de u.e.: {contadores['Transf. de u.e.']}")
 
-        # Preview na área de texto
-        area_texto.config(state="normal")
-        area_texto.delete("1.0", tk.END)
+        # Preview na lista
+        listbox_alunos.delete(0, tk.END)
+        estado["alunos_importados"] = alunos_ativos
+        estado["aluno_selecionado"] = [True] * len(alunos_ativos)
+        
         for aluno in alunos_ativos:
-            area_texto.insert(tk.END, f"{aluno['nome']}: {''.join(aluno['dias'])}\n")
-        area_texto.config(state="disabled")
+            listbox_alunos.insert(tk.END, f"[X] {aluno['nome']}: {''.join(aluno['dias'])}")
 
         total_cel = sum(len(a["dias"]) for a in alunos_ativos)
         label_arquivo.config(text=f"📄 {os.path.basename(caminho)}")
         atualizar_status(
-            f"✅ {len(alunos_ativos)} alunos ativos — {total_cel} células carregadas.", "ok"
+            f"✅ {len(alunos_ativos)} alunos carregados. Desmarque na lista se necessário.", "ok"
         )
-        estado["alunos"] = alunos_ativos
 
     except Exception as e:
         messagebox.showerror("Erro ao ler Excel", str(e))
@@ -157,9 +159,15 @@ def carregar_excel():
 #  Automação
 # ──────────────────────────────────────────────────────────────────
 def executar_automacao():
+    if "alunos_importados" in estado and estado["alunos_importados"]:
+        estado["alunos"] = [
+            aluno for i, aluno in enumerate(estado["alunos_importados"])
+            if estado["aluno_selecionado"][i]
+        ]
+
     if not estado["alunos"]:
         messagebox.showwarning(
-            "Atenção", "Nenhum dado ativo carregado.\nCarregue o Excel primeiro."
+            "Atenção", "Nenhum aluno válido selecionado para processamento."
         )
         return
 
@@ -368,16 +376,43 @@ lbl_transf.pack(side="left", padx=15)
 
 # ── Preview ──
 frame_prev = ttk.LabelFrame(
-    janela, text=" 👁  Preview  ( . = presente   f = falta   espaço = pular ) ", padding=10
+    janela, text=" 👁  Alunos (Clique para (des)marcar) ", padding=10
 )
 frame_prev.pack(fill="x", padx=20, pady=6)
 scroll_y = tk.Scrollbar(frame_prev)
 scroll_y.pack(side="right", fill="y")
-area_texto = tk.Text(frame_prev, height=7, bg=PANEL, fg="#ecf0f1",
-                     font=("Consolas", 10), relief="flat", wrap="none",
-                     yscrollcommand=scroll_y.set, state="disabled")
-area_texto.pack(fill="x")
-scroll_y.config(command=area_texto.yview)
+listbox_alunos = tk.Listbox(frame_prev, height=7, bg=PANEL, fg="#ecf0f1",
+                            font=("Consolas", 10), relief="flat",
+                            selectbackground="#2980b9", selectforeground="#ffffff",
+                            yscrollcommand=scroll_y.set)
+listbox_alunos.pack(fill="x")
+scroll_y.config(command=listbox_alunos.yview)
+
+def toggle_selecao(event):
+    if not estado.get("alunos_importados"):
+        return
+        
+    idx = listbox_alunos.nearest(event.y)
+    if idx >= 0:
+        # Garante que clicou exatamente no item
+        bbox = listbox_alunos.bbox(idx)
+        if bbox:
+            y_start, y_end = bbox[1], bbox[1] + bbox[3]
+            if y_start <= event.y <= y_end:
+                estado["aluno_selecionado"][idx] = not estado["aluno_selecionado"][idx]
+                aluno = estado["alunos_importados"][idx]
+                marca = "[X]" if estado["aluno_selecionado"][idx] else "[ ]"
+                novo_texto = f"{marca} {aluno['nome']}: {''.join(aluno['dias'])}"
+                
+                listbox_alunos.delete(idx)
+                listbox_alunos.insert(idx, novo_texto)
+                
+                if not estado["aluno_selecionado"][idx]:
+                    listbox_alunos.itemconfig(idx, foreground="#7f8c8d")
+                else:
+                    listbox_alunos.itemconfig(idx, foreground="#ecf0f1")
+
+listbox_alunos.bind('<Button-1>', toggle_selecao)
 
 # ── Velocidade ──
 frame_vel = ttk.LabelFrame(janela, text=" ⚙️  Velocidade ", padding=12)
